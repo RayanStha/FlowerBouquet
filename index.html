@@ -70,7 +70,7 @@
 //   index.html?to=Sam&msg=happy%20birthday%20%E2%99%A5
 // ---------------------------------------------------------------------------
 const params = new URLSearchParams(location.search);
-const NAME = params.get("to") || "you";               // written on the envelope: "to: you ♥"
+const ENVELOPE_TEXT = params.get("to") ? `to: ${params.get("to")} ♥` : "from: Baba ♥";  // written on the envelope
 const MESSAGE = params.get("msg") || "I LOVE YOU MY ♥"; // shown under the bouquet
 const FOOTER = "From Baba!";                            // bottom line, under the message
 const SHOW_LETTER = params.get("skip") === null;       // add ?skip to go straight to the bouquet
@@ -685,7 +685,7 @@ function drawLetter(plot, t, s, cols, viewRows, intro) {
     drawSeg(put, x0 + W - 3, y0 + 1, xc, inner, 101, seam);
   }
 
-  const label = `to: ${NAME} ♥`;
+  const label = ENVELOPE_TEXT;
   if (label.length + 4 < W * 0.45) {
     const row = y0 + Math.floor(H * 0.8);
     const start = Math.floor(xc - label.length / 2);

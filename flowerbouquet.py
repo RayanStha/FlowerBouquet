@@ -15,7 +15,7 @@ MESSAGE = "I LOVE YOU MY ♥"
 FOOTER = "From Baba!"         # bottom line, under the message
 NUM_HEARTS = 18
 SHOW_LETTER = True          # start with a sealed letter that opens into the bouquet
-LETTER_TO = "to: you ♥"     # written on the envelope ("" to leave it blank)
+LETTER_TO = "from: Baba ♥"  # written on the envelope ("" to leave it blank)
 
 WHITE = [244, 248, 251, 254, 255, 231]
 PINK = [125, 162, 168, 205, 211, 218, 225]
