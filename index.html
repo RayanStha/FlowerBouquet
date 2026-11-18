@@ -71,8 +71,8 @@
 // ---------------------------------------------------------------------------
 const params = new URLSearchParams(location.search);
 const NAME = params.get("to") || "you";               // written on the envelope: "to: you ♥"
-const MESSAGE = params.get("msg") || "for you ♥";      // shown under the bouquet
-const FOOTER = "I LOVE YOU!!";                          // bottom line, under the message
+const MESSAGE = params.get("msg") || "I LOVE YOU MY ♥"; // shown under the bouquet
+const FOOTER = "From Baba!";                            // bottom line, under the message
 const SHOW_LETTER = params.get("skip") === null;       // add ?skip to go straight to the bouquet
 const SPIN_SPEED = 0.6;
 const TILT = 0.30;
