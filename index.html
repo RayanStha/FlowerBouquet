@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>a letter for you ♥</title>
+<meta property="og:title" content="a letter for you ♥">
+<meta property="og:description" content="tap to open">
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 40%, #2a2e3b 0%, #1b1d26 60%, #131419 100%);
+    color: #fff;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas {
+    position: fixed;
+    left: 0;
+    top: 0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .line {
+    position: fixed;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+    font-variant-emoji: text;
+    pointer-events: none;
+    white-space: pre;
+  }
+  #hint {
+    bottom: calc(40px + env(safe-area-inset-bottom));
+    font-size: clamp(13px, 2.2vw, 18px);
+    color: #ffd7ff;
+    animation: pulse 2.2s ease-in-out infinite;
+    transition: opacity 0.4s;
+  }
+  #hint.gone { opacity: 0; animation: none; }
+  #msg {
+    bottom: calc(38px + env(safe-area-inset-bottom));
+    font-size: clamp(18px, 3.4vw, 28px);
+    opacity: 0;
+    transition: opacity 1.4s;
+  }
+  #msg.show { opacity: 1; }
+  #footer {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    font-size: clamp(12px, 1.8vw, 15px);
+    color: #ff87af;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint" class="line"></div>
+<div id="msg" class="line"></div>
+<div id="footer" class="line"></div>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Make it yours. You can also set these from the link itself:
+//   index.html?to=Sam&msg=happy%20birthday%20%E2%99%A5
+// ---------------------------------------------------------------------------
+const params = new URLSearchParams(location.search);
+const NAME = params.get("to") || "you";               // written on the envelope: "to: you ♥"
+const MESSAGE = params.get("msg") || "for you ♥";      // shown under the bouquet
+const FOOTER = "I LOVE YOU!!";                          // bottom line, under the message
+const SHOW_LETTER = params.get("skip") === null;       // add ?skip to go straight to the bouquet
+const SPIN_SPEED = 0.6;
+const TILT = 0.30;
+const CAM_DIST = 4.0;
+const NUM_HEARTS = 18;
+const FPS = 30;
+const TARGET_CELLS = 9000;  // more = finer detail, but slower on phones
+
+const WHITE = [244, 248, 251, 254, 255, 231];
+const PINK = [125, 162, 168, 205, 211, 218, 225];
+const RED = [52, 88, 124, 160, 196, 203];
+const PURPLE = [54, 91, 97, 134, 140, 183];
+const YELLOW = [136, 178, 214, 220, 226, 229];
+const ORANGE = [130, 166, 202, 208, 214, 216];
+const GOLD_CENTER = [94, 136, 178, 214, 220];
+const DARK_CENTER = [52, 58, 94, 130, 136];
+const SOFT_PINK = [89, 132, 168, 204, 211, 218, 225];
+const HYD_PINK = [96, 132, 169, 175, 212, 218, 225];
+const HYD_LILAC = [60, 97, 140, 176, 183, 189, 225];
+const HYD_BLUE = [18, 25, 32, 69, 75, 111, 153, 189];
+const HYD_PERIWINKLE = [54, 61, 62, 104, 105, 147, 189];
+const LILY_THROAT = [64, 106, 149, 150, 192, 193];
+const STARGAZER = [89, 125, 161, 162, 198, 205];
+const STARGAZER_EDGE = [175, 182, 218, 224, 225, 231];
+const ANTHER = [52, 94, 130, 166];
+const ENVELOPE = [94, 130, 137, 173, 179, 216, 223, 230];
+const LINER = [89, 125, 168, 175, 211, 218];
+const SEAL = [52, 88, 125, 161, 197, 204, 211, 218];
+const AIRMAIL = [167, 230, 68, 230];
+const GLITTER = [229, 223, 222, 218, 225, 231];
+const STAR_COLORS = [238, 241, 244, 248, 252];
+const GREENS = [22, 28, 28, 34, 35, 71, 77, 114];
+const PAPER = [101, 144, 187, 223, 230, 231];
+const RIBBON = [88, 125, 161, 197, 204, 211];
+const HEART_COLORS = [161, 197, 204, 205, 211, 218];
+const MSG_COLORS = [161, 168, 205, 211, 218, 225, 218, 211, 205, 168];
+const PAPER_TEX = "%#&8@";
+const SHADE = ".:-=+*%@";
+const PETAL_SHADE = "+*#%";
+const PIVOT_Y = 0.2;
+
+const DAISIES = {  // petal colors, center colors, number of petals
+  white: [WHITE, GOLD_CENTER, 13],
+  pink: [PINK, GOLD_CENTER, 8],
+  red: [RED, DARK_CENTER, 6],
+  purple: [PURPLE, GOLD_CENTER, 7],
+  yellow: [YELLOW, DARK_CENTER, 12],
+  orange: [ORANGE, DARK_CENTER, 9],
+};
+const TULIPS = {
+  pink: SOFT_PINK, "hot pink": PINK, red: RED, yellow: YELLOW, purple: PURPLE, white: WHITE, orange: ORANGE,
+};
+const LILIES = {  // petal middle, petal edge, throat, spot color (or null), stamen color
+  white: [WHITE, WHITE, LILY_THROAT, null, 193],
+  stargazer: [STARGAZER, STARGAZER_EDGE, LILY_THROAT, 89, 225],
+  pink: [SOFT_PINK, PINK, LILY_THROAT, null, 225],
+  tiger: [ORANGE, ORANGE, YELLOW, 52, 223],
+};
+const HYDRANGEAS = {  // each little floret picks one of these palettes
+  pink: [HYD_PINK, HYD_PINK, HYD_LILAC],
+  blue: [HYD_BLUE, HYD_BLUE, HYD_PERIWINKLE],
+  mixed: [HYD_PINK, HYD_BLUE, HYD_LILAC, HYD_PERIWINKLE],
+};
+
+// The flowers: [kind, variety]. The first sits on top in the middle; the rest spiral outward.
+const BOUQUET = [
+  ["lily", "white"],
+  ["tulip", "pink"],
+  ["hydrangea", "pink"],
+  ["hydrangea", "blue"],
+  ["daisy", "yellow"],
+  ["tulip", "pink"],
+  ["hydrangea", "pink"],
+  ["lily", "stargazer"],
+  ["daisy", "white"],
+  ["tulip", "red"],
+  ["hydrangea", "blue"],
+  ["daisy", "purple"],
+];
+const FLOWER_SIZE = { daisy: [0.12, 0.14], tulip: [0.11, 0.11], lily: [0.16, 0.17], hydrangea: [0.14, 0.15] };
+const FLORETS = 32;
+
+// Letter animation timeline, in seconds after the tap.
+const SEAL_POP = 0.15;
+const FLAP_OPEN = [0.3, 1.2];
+const GLITTER_TIME = [0.9, 2.0];
+const DISSOLVE_START = 1.4;
+const BLOOM_START = 2.0, BLOOM_TIME = 1.6;
+const LETTER_GONE = 3.8;
+const FLAP_DEPTH = 0.56;
+
+// xterm 256-color palette, so the colors match the terminal version
+const LV = [0, 95, 135, 175, 215, 255];
+const BASIC = ["#000", "#800", "#080", "#880", "#008", "#808", "#088", "#c0c0c0",
+               "#808080", "#f00", "#0f0", "#ff0", "#00f", "#f0f", "#0ff", "#fff"];
+const PALETTE = [];
+for (let n = 0; n < 256; n++) {
+  if (n < 16) PALETTE.push(BASIC[n]);
+  else if (n < 232) {
+    const m = n - 16;
+    PALETTE.push(`rgb(${LV[Math.floor(m / 36)]},${LV[Math.floor(m / 6) % 6]},${LV[m % 6]})`);
+  } else {
+    const g = 8 + 10 * (n - 232);
+    PALETTE.push(`rgb(${g},${g},${g})`);
+  }
+}
+
+const norm = (v) => { const m = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / m, v[1] / m, v[2] / m]; };
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const add = (p, d, k) => [p[0] + d[0] * k, p[1] + d[1] * k, p[2] + d[2] * k];
+const clamp01 = (b) => Math.min(0.999, Math.max(0, b));
+const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+const pick = (pal, b) => pal[(b * pal.length) | 0];
+const [LX, LY, LZ] = norm([-0.45, 0.6, 0.66]);
+
+function rng(seed) {  // small seeded random generator (mulberry32)
+  let a = seed >>> 0;
+  const f = () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  f.uniform = (lo, hi) => lo + (hi - lo) * f();
+  f.choice = (arr) => arr[Math.floor(f() * arr.length)];
+  return f;
+}
+
+function hash01(a, b, salt) {
+  let n = (Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(salt, 1442695041)) >>> 0;
+  n = Math.imul(n ^ (n >>> 13), 1274126177) >>> 0;
+  return ((n ^ (n >>> 16)) & 0xFFFF) / 65536;
+}
+
+const smoothstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const easeOutBack = (x) => { x = clamp(x, 0, 1) - 1; return 1 + 2.70158 * x ** 3 + 1.70158 * x ** 2; };
+
+// ---------------------------------------------------------------------------
+// Scene
+// ---------------------------------------------------------------------------
+function makeFlorets(rnd, palettes) {
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const out = [];
+  for (let i = 0; i < FLORETS; i++) {
+    const y = 1 - 2 * (i + 0.5) / FLORETS;
+    const r = Math.sqrt(1 - y * y);
+    const a = i * golden + rnd.uniform(-0.2, 0.2);
+    out.push([r * Math.cos(a), y, r * Math.sin(a), rnd.choice(palettes), rnd.uniform(-0.25, 0.25)]);
+  }
+  return out;
+}
+
+function buildScene() {
+  const rnd = rng(21);
+  const pts = [];
+  const neck = [0, -0.12, 0];
+  const C = [0, 0.12, 0], D = 0.64;
+  const N = BOUQUET.length;
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const heads = [];
+  for (let i = 0; i < N; i++) {
+    const el = (88 - 60 * Math.sqrt(i / Math.max(1, N - 1))) * Math.PI / 180;
+    const az = i * golden;
+    const d = [Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)];
+    heads.push([add(C, d, D * rnd.uniform(0.92, 1.05)), norm(d)]);
+  }
+
+  const flowers = [];
+  heads.forEach(([pos, axis], idx) => {
+    const base = add(pos, axis, -0.03);
+    for (let j = 0; j < 70; j++) {
+      const t = j / 69;
+      pts.push([base[0] + (neck[0] - base[0]) * t, base[1] + (neck[1] - base[1]) * t,
+                base[2] + (neck[2] - base[2]) * t, axis[0], 0, axis[2], GREENS, -0.15, true, null]);
+    }
+    const [kind, variety] = BOUQUET[idx];
+    const spec = { daisy: DAISIES, tulip: TULIPS, lily: LILIES, hydrangea: HYDRANGEAS }[kind][variety];
+    const R = rnd.uniform(...FLOWER_SIZE[kind]);
+    const extra = kind === "hydrangea" ? makeFlorets(rnd, spec) : null;
+    flowers.push({ pos, kind, spec, R, seed: rnd.uniform(0, 6.28), extra });
+  });
+
+  for (let i = 0; i < 8; i++) {  // leaves
+    const a = (i + 0.4) / 8 * 2 * Math.PI;
+    const c = Math.cos(a), s = Math.sin(a);
+    const base = [0.26 * c, 0.30, 0.26 * s];
+    const d = norm([c, 0.15, s]);
+    const side = [-s, 0, c];
+    const n = norm(cross(side, d));
+    const L = 0.30, W = 0.07;
+    for (let ti = 0; ti < 32; ti++) {
+      const t = ti / 31;
+      for (let wi = -5; wi <= 5; wi++) {
+        const w = wi / 5, curl = 0.025 * w * w;
+        const sw = W * Math.sin(Math.PI * t) * w;
+        pts.push([base[0] + d[0] * L * t + side[0] * sw + n[0] * curl,
+                  base[1] + d[1] * L * t - 0.10 * t * t + n[1] * curl,
+                  base[2] + d[2] * L * t + side[2] * sw + n[2] * curl,
+                  n[0], n[1], n[2], GREENS, wi === 0 ? -0.25 : 0, true, null]);
+      }
+    }
+  }
+
+  const y0 = -0.20, y1 = 0.30, r0 = 0.06, r1 = 0.36;  // paper wrap cone
+  const k = (r1 - r0) / (y1 - y0);
+  const rings = 50;
+  for (let i = 0; i < rings; i++) {
+    const t = i / (rings - 1);
+    const r = r0 + (r1 - r0) * t;
+    const count = Math.max(8, Math.floor(170 * r));
+    for (let j = 0; j < count; j++) {
+      const ph = (j + rnd()) / count * 2 * Math.PI;
+      const c = Math.cos(ph), s = Math.sin(ph);
+      let y = y0 + (y1 - y0) * t;
+      if (t > 0.9) y += 0.03 * Math.sin(9 * ph);
+      const fold = 0.3 * (Math.abs(Math.sin(5 * ph)) - 0.6);
+      const nn = norm([c, -k, s]);
+      pts.push([r * c, y, r * s, nn[0], nn[1], nn[2], PAPER, fold, false, null]);
+    }
+  }
+
+  for (let i = 0; i < 7; i++) {  // stems below the wrap
+    const a = i / 7 * 2 * Math.PI;
+    const sx = 0.025 * Math.cos(a), sz = 0.025 * Math.sin(a);
+    for (let j = 0; j < 40; j++) {
+      const t = j / 39;
+      pts.push([sx * (1 + 1.2 * t), -0.20 - 0.30 * t, sz * (1 + 1.2 * t),
+                Math.cos(a), 0, Math.sin(a), GREENS, -0.1, true, null]);
+    }
+  }
+
+  const by = -0.12;  // ribbon and bow
+  const br = r0 + k * (by - y0) + 0.01;
+  for (let j = 0; j < 90; j++) {
+    const ph = j / 90 * 2 * Math.PI;
+    for (const dy of [-0.012, 0, 0.012]) {
+      pts.push([br * Math.cos(ph), by + dy, br * Math.sin(ph), Math.cos(ph), 0, Math.sin(ph), RIBBON, 0, false, null]);
+    }
+  }
+  const knot = [0, by, br + 0.01];
+  for (const side of [-1, 1]) {
+    for (let j = 0; j < 70; j++) {
+      const a = j / 70 * 2 * Math.PI;
+      const lx = side * (0.07 + 0.07 * Math.cos(a));
+      const ly = 0.04 * Math.sin(a) + 0.02 * (0.07 + 0.07 * Math.cos(a)) / 0.14;
+      for (const fill of [1.0, 0.7]) {
+        pts.push([knot[0] + lx * fill, knot[1] + ly * fill, knot[2] + 0.01, side * 0.3, 0.2, 0.93, RIBBON, 0.1, true, null]);
+      }
+    }
+    for (let j = 0; j < 30; j++) {
+      const t = j / 29;
+      pts.push([knot[0] + side * 0.06 * t, knot[1] - 0.15 * t, knot[2] + 0.015,
+                side * 0.2, 0, 0.98, RIBBON, -0.05 + 0.05 * Math.sin(t * 9), true, null]);
+    }
+  }
+  for (const dx of [-0.01, 0, 0.01]) pts.push([dx, by, knot[2] + 0.02, 0, 0, 1, RIBBON, 0.2, true, "@"]);
+
+  const babies = [];
+  for (let i = 0; i < 90; i++) {
+    const a = rnd() * 2 * Math.PI;
+    const el = rnd.uniform(0.3, 1.4);
+    const rr = rnd.uniform(0.40, 0.58);
+    babies.push([rr * Math.cos(a) * Math.cos(el), C[1] + rr * Math.sin(el), rr * Math.sin(a) * Math.cos(el), rnd.uniform(0, 6.28)]);
+  }
+  const sparkles = [];
+  for (let i = 0; i < 30; i++) {
+    const a = rnd() * 2 * Math.PI;
+    const rr = rnd.uniform(0.75, 0.95);
+    sparkles.push([rr * Math.cos(a), rnd.uniform(-0.3, 1.0), rr * Math.sin(a), rnd.uniform(0, 6.28), rnd.uniform(1.5, 4.0)]);
+  }
+  return { pts, flowers, babies, sparkles };
+}
+
+function buildIntro() {
+  const rnd = rng(7);
+  const burst = [];
+  for (let i = 0; i < 46; i++) {
+    const a = rnd.uniform(0, 2 * Math.PI);
+    burst.push([Math.cos(a), Math.sin(a), rnd.uniform(8, 20), rnd.uniform(0.5, 1.0),
+                rnd.choice(["♥", "♥", "*", "+", "·"]), rnd.choice(SEAL.slice(3))]);
+  }
+  const glitter = [];
+  for (let i = 0; i < 70; i++) {
+    glitter.push([rnd.uniform(0.25, 0.75), rnd.uniform(...GLITTER_TIME), rnd.uniform(-12, 12),
+                  rnd.uniform(-28, -14), rnd.uniform(0.9, 1.5), rnd.choice(["*", "+", "·", "♥", "*"]),
+                  rnd.choice(GLITTER)]);
+  }
+  const stars = [];
+  for (let i = 0; i < 45; i++) stars.push([rnd(), rnd(), rnd.uniform(0, 6.28), rnd.uniform(0.8, 2.5)]);
+  return { burst, glitter, stars };
+}
+
+// ---------------------------------------------------------------------------
+// Flowers (drawn as flat shapes that face the camera)
+// ---------------------------------------------------------------------------
+function drawDaisy(plot, fx, fy, zt, rx, ry, dim, rot, spec) {
+  const [pal, cpal, nPet] = spec;
+  for (let row = Math.floor(fy - ry) - 1; row < Math.floor(fy + ry) + 2; row++) {
+    const dy = (row + 0.5 - fy) / ry;
+    for (let col = Math.floor(fx - rx) - 1; col < Math.floor(fx + rx) + 2; col++) {
+      const dx = (col + 0.5 - fx) / rx;
+      const s = Math.sqrt(dx * dx + dy * dy);
+      if (s > 1) continue;
+      if (s < 0.3) {
+        const b = clamp01(0.55 - 0.35 * dx - 0.35 * dy + dim);
+        plot(col, row, zt + 0.06, s < 0.17 ? "@" : "o", pick(cpal, b));
+        continue;
+      }
+      const ph = Math.atan2(dy, dx);
+      const reach = 0.32 + 0.68 * Math.abs(Math.cos(nPet * (ph + rot) / 2)) ** 0.7;
+      if (s > reach) continue;
+      const edge = s > reach - 0.14 ? -0.22 : 0;
+      const b = clamp01(0.62 - 0.22 * dx - 0.28 * dy + 0.12 * s + edge + dim);
+      plot(col, row, zt + 0.04 * (1 - s), PETAL_SHADE[(b * 4) | 0], pick(pal, b));
+    }
+  }
+}
+
+function drawTulip(plot, fx, fy, zt, rx, ry, dim, pal) {
+  for (let row = Math.floor(fy - ry) - 1; row < Math.floor(fy + ry) + 2; row++) {
+    const dy = (row + 0.5 - fy) / ry;
+    const v = (1 - dy) / 2;
+    if (v < 0 || v > 1) continue;
+    const hw = 0.62 * Math.sin(Math.PI * 0.5 * Math.min(1, v * 1.5 + 0.05));
+    if (hw <= 0) continue;
+    for (let col = Math.floor(fx - rx) - 1; col < Math.floor(fx + rx) + 2; col++) {
+      const dx = (col + 0.5 - fx) / rx;
+      if (Math.abs(dx) > hw) continue;
+      const xn = dx / hw;
+      if (v > 0.72 + 0.28 * Math.cos(1.5 * Math.PI * xn) ** 2) continue;
+      const seam = Math.abs(Math.abs(xn) - 0.33) < 0.12 && v > 0.3 ? -0.25 : 0;
+      const b = clamp01(0.55 - 0.3 * xn + 0.1 * v + seam + dim);
+      plot(col, row, zt + 0.03, PETAL_SHADE[(b * 4) | 0], pick(pal, b));
+    }
+  }
+}
+
+function lineChar(th) {
+  const d = (((th * 180 / Math.PI) % 180) + 180) % 180;
+  if (d < 22.5 || d >= 157.5) return "-";
+  if (d < 67.5) return "\\";
+  if (d < 112.5) return "|";
+  return "/";
+}
+
+function drawLily(plot, fx, fy, zt, rx, ry, dim, rot, spec) {
+  const [midPal, edgePal, throatPal, spot, filament] = spec;
+  const sixth = Math.PI / 3;
+  for (let row = Math.floor(fy - ry) - 1; row < Math.floor(fy + ry) + 2; row++) {
+    const dy = (row + 0.5 - fy) / ry;
+    for (let col = Math.floor(fx - rx) - 1; col < Math.floor(fx + rx) + 2; col++) {
+      const dx = (col + 0.5 - fx) / rx;
+      const s = Math.sqrt(dx * dx + dy * dy);
+      if (s > 1) continue;
+      const light = 0.62 - 0.22 * dx - 0.28 * dy + dim;
+      if (s < 0.15) {
+        const b = clamp01(light - 0.1);
+        plot(col, row, zt + 0.05, PETAL_SHADE[(b * 4) | 0], pick(throatPal, b));
+        continue;
+      }
+      const ph = Math.atan2(dy, dx) - rot;
+      const k = Math.round(ph / sixth);
+      const a = ph - k * sixth;
+      const inner = ((k % 2) + 2) % 2 === 1;
+      const u = s * Math.cos(a) / (inner ? 0.9 : 1.0);
+      if (u >= 1) continue;
+      const w = (inner ? 0.22 : 0.17) * Math.sin(Math.PI * u ** 0.55);
+      const v = Math.abs(s * Math.sin(a));
+      if (v > w || w <= 0) continue;
+      const frac = v / w;
+      const groove = frac < 0.16 && u > 0.2 ? -0.22 : 0;
+      const rim = frac > 0.82 ? -0.15 : 0;
+      const b = clamp01(light + 0.12 * (1 - frac) + groove + rim + (inner ? 0.05 : 0));
+      const pal = u < 0.24 ? throatPal : (frac < 0.55 ? midPal : edgePal);
+      let ch = PETAL_SHADE[(b * 4) | 0], color = pick(pal, b);
+      if (spot !== null && u > 0.22 && u < 0.62 && frac < 0.75) {
+        const h = (Math.imul((u * 11) | 0, 73856093) ^ Math.imul((frac * 4) | 0, 19349663) ^
+                   Math.imul(((k % 6) + 6) % 6, 83492791)) >>> 0;
+        if (h % 5 === 0) { ch = "%"; color = spot; }
+      }
+      plot(col, row, zt + 0.04 * (1 - s), ch, color);
+    }
+  }
+  for (let i = 0; i < 7; i++) {  // six stamens and the pistil
+    const pistil = i === 6;
+    const th = rot + (pistil ? 0.25 : (i + 0.5) * sixth + 0.15 * Math.sin(i * 2.3));
+    const reach = pistil ? 0.3 : 0.4 + 0.05 * Math.sin(i * 1.7);
+    const c = Math.cos(th), s = Math.sin(th);
+    const mid = reach - 0.12;
+    plot(Math.floor(fx + c * mid * rx), Math.floor(fy + s * mid * ry), zt + 0.08, lineChar(th), filament);
+    const tc = Math.floor(fx + c * reach * rx), tr = Math.floor(fy + s * reach * ry);
+    if (pistil) plot(tc, tr, zt + 0.09, "*", 149);
+    else plot(tc, tr, zt + 0.09, "o", pick(ANTHER, clamp01(0.6 - 0.3 * c - 0.3 * s + dim)));
+  }
+}
+
+function drawHydrangea(plot, fx, fy, zt, rx, ry, dim, R, florets, view) {
+  const [ca, sa, ct, st] = view;
+  const depth = R * 0.7;
+  const body = florets[0][3];
+  for (let row = Math.floor(fy - ry * 0.85) - 1; row < Math.floor(fy + ry * 0.85) + 2; row++) {
+    const dy = (row + 0.5 - fy) / ry;
+    for (let col = Math.floor(fx - rx * 0.85) - 1; col < Math.floor(fx + rx * 0.85) + 2; col++) {
+      const dx = (col + 0.5 - fx) / rx;
+      const s2 = (dx * dx + dy * dy) / 0.72;
+      if (s2 > 1) continue;
+      const nz = Math.sqrt(1 - s2);
+      const b = clamp01(0.12 + 0.25 * Math.max(0, -dx * LX - dy * LY + nz * LZ) + dim);
+      plot(col, row, zt + depth * 0.55 * nz, ":", pick(body, b));
+    }
+  }
+  const size = 0.32;
+  const frx = size * rx, fry = size * ry;
+  for (const [px, py, pz, pal, frot] of florets) {
+    const xr = px * ca - pz * sa;
+    const zr = px * sa + pz * ca;
+    const yt = py * ct - zr * st;
+    const zv = py * st + zr * ct;
+    if (zv < -0.2) continue;
+    const shade = 0.36 + 0.58 * Math.max(0, xr * LX + yt * LY + zv * LZ) + dim;
+    const ccx = fx + xr * 0.8 * rx, ccy = fy - yt * 0.8 * ry;
+    const rl = Math.sqrt(xr * xr + yt * yt) || 1;
+    const rdx = xr / rl, rdy = yt / rl;
+    const squash = Math.max(0.35, zv);
+    const fz = zt + depth * (0.8 * zv + 0.25);
+    for (let row = Math.floor(ccy - fry) - 1; row < Math.floor(ccy + fry) + 2; row++) {
+      const uy = -(row + 0.5 - ccy) / fry;
+      for (let col = Math.floor(ccx - frx) - 1; col < Math.floor(ccx + frx) + 2; col++) {
+        const ux = (col + 0.5 - ccx) / frx;
+        const a = (ux * rdx + uy * rdy) / squash;
+        const c = -ux * rdy + uy * rdx;
+        const r = Math.sqrt(a * a + c * c);
+        if (r > 1) continue;
+        const reach = 0.4 + 0.6 * Math.abs(Math.cos(2 * (Math.atan2(c, a) + frot)));
+        if (r > reach) continue;
+        const b = clamp01(shade + 0.12 * (1 - r) - (r > reach - 0.25 ? 0.2 : 0));
+        plot(col, row, fz, PETAL_SHADE[(b * 4) | 0], pick(pal, b));
+      }
+    }
+    if (zv > 0.15) plot(Math.floor(ccx), Math.floor(ccy), fz + 0.01, "o", pick(pal, clamp01(shade + 0.3)));
+  }
+}
+
+function drawBouquet(plot, scene, t, cols, viewRows, grow, anchorRow) {
+  const { pts, flowers, babies, sparkles } = scene;
+  const full = Math.max(1, Math.min((viewRows - 2) / 1.45, (cols - 2) / 2.7));
+  const scale = Math.max(0.3, full * grow);
+  const sxs = scale * 2;
+  const cx = cols / 2;
+  let cy = 1 + 0.78 * full + Math.max(0, (viewRows - 2 - 1.45 * full) / 2);
+  if (anchorRow !== null && grow < 1) cy = anchorRow + (cy - anchorRow) * Math.max(0, grow);
+  const ang = t * SPIN_SPEED + 3 * (1 - clamp(grow, 0, 1)) ** 2;
+  const ca = Math.cos(ang), sa = Math.sin(ang), ct = Math.cos(TILT), st = Math.sin(TILT);
+
+  const proj = (x, y, z) => {
+    const xr = x * ca - z * sa, zr = x * sa + z * ca, yp = y - PIVOT_Y;
+    const yt = yp * ct - zr * st, zt = yp * st + zr * ct;
+    const f = CAM_DIST / (CAM_DIST - zt);
+    return [cx + xr * f * sxs, cy - yt * f * scale, zt, f];
+  };
+
+  for (const p of pts) {
+    const [fx, fy, zt] = proj(p[0], p[1], p[2]);
+    const nxr = p[3] * ca - p[5] * sa;
+    const nzr = p[3] * sa + p[5] * ca;
+    const nyt = p[4] * ct - nzr * st;
+    const nzt = p[4] * st + nzr * ct;
+    let dot = nxr * LX + nyt * LY + nzt * LZ;
+    if (p[8] && dot < 0) dot = -dot * 0.55;
+    const b = clamp01(0.25 + 0.75 * Math.max(0, dot) + p[7]);
+    plot(Math.floor(fx), Math.floor(fy), zt, p[9] || SHADE[(b * 8) | 0], pick(p[6], b));
+  }
+
+  const view = [ca, sa, ct, st];
+  for (const fl of flowers) {
+    const [fx, fy, zt, f] = proj(...fl.pos);
+    const rx = fl.R * f * sxs, ry = fl.R * f * scale;
+    const dim = -0.4 * (1 - clamp((zt + 0.6) / 1.2, 0, 1));
+    const rot = fl.seed + ang * 0.7;
+    if (fl.kind === "daisy") drawDaisy(plot, fx, fy, zt, rx, ry, dim, rot, fl.spec);
+    else if (fl.kind === "tulip") drawTulip(plot, fx, fy, zt, rx, ry, dim, fl.spec);
+    else if (fl.kind === "lily") drawLily(plot, fx, fy, zt, rx, ry, dim, rot, fl.spec);
+    else drawHydrangea(plot, fx, fy, zt, rx, ry, dim, fl.R, fl.extra, view);
+  }
+
+  for (const [x, y, z, phase] of babies) {
+    const [fx, fy, zt] = proj(x, y, z);
+    const star = Math.sin(t * 2 + phase) > 0.6;
+    plot(Math.floor(fx), Math.floor(fy), zt + 0.02, star ? "*" : "·", star ? 231 : 255);
+  }
+  for (const [x, y, z, phase, speed] of sparkles) {
+    const [fx, fy, zt] = proj(x, y, z);
+    const tw = Math.sin(t * speed + phase);
+    const col = Math.floor(fx), row = Math.floor(fy);
+    if (tw > 0.85) plot(col, row, zt, "*", 231);
+    else if (tw > 0.4) plot(col, row, zt, "+", 225);
+    else if (tw > 0) plot(col, row, zt, "·", 218);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The letter
+// ---------------------------------------------------------------------------
+function letterLayout(cols, viewRows) {
+  const frac = cols < 110 ? 0.8 : 0.62;
+  const W = Math.max(16, Math.min(cols - 2, Math.floor(Math.min(cols * frac, (viewRows - 6) * 2.6))));
+  const H = Math.max(7, Math.floor(W / 3.1));
+  const x0 = Math.floor((cols - W) / 2);
+  const y0 = Math.max(1, Math.floor((viewRows - H) / 2) + Math.floor(H / 5));
+  return [x0, y0, W, H];
+}
+
+function drawSeg(put, xa, ya, xb, yb, z, color) {
+  const dx = xb - xa, dy = yb - ya;
+  const ratio = dx ? dy / dx : 99;
+  const ch = Math.abs(ratio) < 0.2 ? "-" : Math.abs(ratio) > 2.5 ? "|" : ratio > 0 ? "\\" : "/";
+  const n = Math.floor(Math.max(Math.abs(dx), Math.abs(dy))) + 1;
+  for (let i = 0; i <= n; i++) put(Math.floor(xa + dx * i / n), Math.floor(ya + dy * i / n), z, ch, color);
+}
+
+function inHeart(x, y) {
+  const q = x * x + y * y - 1;
+  return q * q * q - x * x * y * y * y <= 0;
+}
+
+function drawHeart(put, xc, yc, hw, z, pal) {
+  const hh = hw / 2, halo = 1.22;
+  for (let row = Math.floor(yc - hh * 1.7) - 1; row < Math.floor(yc + hh * 1.7) + 2; row++) {
+    const y = -(row + 0.5 - yc) / hh + 0.15;
+    for (let col = Math.floor(xc - hw * 1.6) - 1; col < Math.floor(xc + hw * 1.6) + 2; col++) {
+      const x = (col + 0.5 - xc) / hw;
+      if (inHeart(x, y)) {
+        const b = clamp01(0.5 - 0.2 * x + 0.25 * y);
+        const shine = (x + 0.45) ** 2 + (y - 0.6) ** 2 < 0.05;
+        put(col, row, z, shine ? "*" : (b > 0.3 ? "@" : "%"), shine ? 225 : pick(pal, b));
+      } else if (inHeart(x / halo, (y - 0.15) / halo + 0.15)) {
+        put(col, row, z - 1, " ", 0);
+      }
+    }
+  }
+}
+
+function drawStars(plot, stars, t, cols, viewRows) {
+  for (const [fx, fy, phase, speed] of stars) {
+    const tw = Math.sin(t * speed + phase);
+    if (tw < 0.2) continue;
+    const ch = tw > 0.92 ? "*" : (tw > 0.7 ? "+" : "·");
+    plot(Math.floor(fx * cols), Math.floor(fy * viewRows), -40, ch,
+         STAR_COLORS[Math.floor((tw - 0.2) / 0.81 * STAR_COLORS.length)]);
+  }
+}
+
+function drawLetter(plot, t, s, cols, viewRows, intro) {
+  // s = seconds since the letter was tapped (null while it's still sealed)
+  const [x0, y0, W, H] = letterLayout(cols, viewRows);
+  const xc = x0 + W / 2;
+  const kx = W / 78, ky = H / 25;
+  const p = s === null ? 0 : smoothstep((s - FLAP_OPEN[0]) / (FLAP_OPEN[1] - FLAP_OPEN[0]));
+  const tip = FLAP_DEPTH * Math.cos(Math.PI * p);
+  const dis = s === null ? null : s - DISSOLVE_START;
+  const top = y0 - H * FLAP_DEPTH, span = H * (1 + FLAP_DEPTH);
+
+  const put = (col, row, z, ch, color) => {
+    // While dissolving, each cell breaks off (top rows first) and floats away as glitter.
+    if (dis === null || dis < 0) { plot(col, row, z, ch, color); return; }
+    const tau = dis - 0.8 * clamp((row - top) / span, 0, 1) - 0.3 * hash01(col, row, 1);
+    if (tau < 0) { plot(col, row, z, ch, color); return; }
+    const h2 = hash01(col, row, 2), h3 = hash01(col, row, 3);
+    const life = 0.6 + 0.5 * h2;
+    if (tau >= life) return;
+    const k = tau / life;
+    if (k > 0.2) {
+      ch = k < 0.5 ? "*" : (k < 0.75 ? "+" : "·");
+      color = GLITTER[Math.floor(h3 * GLITTER.length)];
+    }
+    const x = col + ((col - xc) * 1.2 + (h2 - 0.5) * 24 * kx) * tau;
+    const y = row - (10 + 16 * h3) * ky * tau + 8 * ky * tau * tau;
+    plot(Math.floor(x), Math.floor(y), z + 60, ch, color);
+  };
+
+  for (let r = 0; r < H; r++) {
+    const v = (r + 0.5) / H;
+    const row = y0 + r;
+    for (let c = 0; c < W; c++) {
+      const col = x0 + c;
+      if (r === 0 || r === H - 1 || c < 2 || c >= W - 2) {
+        put(col, row, 100, "/", AIRMAIL[Math.floor((c + r) / 2) % 4]);
+        continue;
+      }
+      const u = (c + 0.5) / W;
+      const tri = 1 - Math.abs(2 * u - 1);
+      const n = hash01(c, r, 4);
+      let ch = PAPER_TEX[Math.floor(hash01(c, r, 5) * PAPER_TEX.length)];
+      let b = 0.5 + 0.2 * (1 - v) - 0.12 * u + 0.12 * (n - 0.5);
+      if (tip > 0 && v < tip * tri) b += 0.08 - 0.3 * Math.sin(Math.PI * p);       // flap, folded down
+      else if (p > 0 && v < FLAP_DEPTH * 0.9 * tri) { b = 0.08 + 0.2 * v / (FLAP_DEPTH * 0.9); ch = ":"; }  // inside
+      else if (tip > 0 && v < tip * tri + 0.08) b -= 0.2;                          // flap's shadow
+      put(col, row, 100, ch, pick(ENVELOPE, clamp01(b)));
+    }
+  }
+
+  const seam = ENVELOPE[2];
+  const meet = y0 + H * 0.64;
+  drawSeg(put, x0 + 2, y0 + H - 1, xc, meet, 101, seam);
+  drawSeg(put, x0 + W - 3, y0 + H - 1, xc, meet, 101, seam);
+  if (p > 0.3) {
+    const inner = y0 + H * FLAP_DEPTH * 0.9;
+    drawSeg(put, x0 + 2, y0 + 1, xc, inner, 101, seam);
+    drawSeg(put, x0 + W - 3, y0 + 1, xc, inner, 101, seam);
+  }
+
+  const label = `to: ${NAME} ♥`;
+  if (label.length + 4 < W * 0.45) {
+    const row = y0 + Math.floor(H * 0.8);
+    const start = Math.floor(xc - label.length / 2);
+    for (let i = -2; i < label.length + 2; i++) {
+      put(start + i, row, 101, i >= 0 && i < label.length ? label[i] : " ", 224);
+    }
+  }
+
+  if (tip >= 0) {
+    const tipRow = y0 + tip * H;
+    drawSeg(put, x0 + 1, y0, xc, tipRow, 103, ENVELOPE[1]);
+    drawSeg(put, x0 + W - 2, y0, xc, tipRow, 103, ENVELOPE[1]);
+  } else {  // flap swung up: show its pink lining
+    const up = -tip * H;
+    for (let rUp = 0; rUp <= Math.floor(up); rUp++) {
+      const depth = (rUp + 0.5) / up;
+      for (let c = 0; c < W; c++) {
+        if (depth > 1 - Math.abs(2 * (c + 0.5) / W - 1)) continue;
+        const n = hash01(c, rUp, 6);
+        const ch = n > 0.94 ? "♥" : PAPER_TEX[Math.floor(hash01(c, rUp, 7) * PAPER_TEX.length)];
+        put(x0 + c, y0 - 1 - rUp, 102, ch, pick(LINER, clamp01(0.3 + 0.4 * (1 - depth) + 0.12 * (n - 0.5))));
+      }
+    }
+    drawSeg(put, x0 + 1, y0 - 1, xc, y0 - up, 103, LINER[1]);
+    drawSeg(put, x0 + W - 2, y0 - 1, xc, y0 - up, 103, LINER[1]);
+  }
+
+  if (s === null || s < SEAL_POP + 0.1) {
+    const beat = Math.abs(Math.sin(t * 2.6)) ** 6;
+    const swell = s === null ? 1 + 0.1 * beat : 1 + 2.5 * s;
+    drawHeart(put, xc, y0 + tip * H, Math.max(2.5, W * 0.095) * swell, 105, SEAL);
+  }
+  if (s === null) return;
+
+  const tau = s - SEAL_POP;
+  const yc = y0 + FLAP_DEPTH * H;
+  for (const [dx, dy, speed, life, ch, color] of intro.burst) {
+    if (tau >= 0 && tau < life) {
+      plot(Math.floor(xc + dx * speed * 2 * kx * tau), Math.floor(yc + (dy * speed * tau + 6 * tau * tau) * ky),
+           170, tau < life * 0.7 ? ch : "·", color);
+    }
+  }
+  for (const [u, begin, vx, vy, life, ch, color] of intro.glitter) {
+    const g = s - begin;
+    if (g >= 0 && g < life) {
+      plot(Math.floor(x0 + u * W + vx * kx * g), Math.floor(y0 + 1 + (vy * g + 15 * g * g) * ky),
+           160, g < life * 0.75 ? ch : "·", color);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById("art");
+const ctx = canvas.getContext("2d");
+const hintEl = document.getElementById("hint");
+const msgEl = document.getElementById("msg");
+const FOOTER_PX = 70;
+const HEART = "♥︎";
+let cols = 0, rows = 0, cellW = 0, cellH = 0;
+let chars = [], colors = null, zbuf = null;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = window.innerWidth, h = Math.max(100, window.innerHeight - FOOTER_PX);
+  cellW = clamp(Math.sqrt(w * h / (2 * TARGET_CELLS)), 4, 11);
+  cellH = cellW * 2;
+  cols = Math.max(20, Math.floor(w / cellW));
+  rows = Math.max(12, Math.floor(h / cellH));
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, (w - cols * cellW) / 2 * dpr, (h - rows * cellH) / 2 * dpr);
+  ctx.font = `${(cellH * 0.82).toFixed(2)}px Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace`;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  chars = new Array(cols * rows);
+  colors = new Uint8Array(cols * rows);
+  zbuf = new Float32Array(cols * rows);
+}
+
+function plot(col, row, z, ch, color) {
+  if (row < 0 || row >= rows || col < 0 || col >= cols) return;
+  const i = row * cols + col;
+  if (z > zbuf[i]) { zbuf[i] = z; chars[i] = ch; colors[i] = color; }
+}
+
+function paint() {
+  ctx.clearRect(-cellW * 4, -cellH * 4, cols * cellW + cellW * 8, rows * cellH + cellH * 8);
+  let last = -1;
+  for (let r = 0; r < rows; r++) {
+    const y = (r + 0.5) * cellH;
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const ch = chars[i];
+      if (ch === " ") continue;
+      if (colors[i] !== last) { last = colors[i]; ctx.fillStyle = PALETTE[last]; }
+      ctx.fillText(ch === "♥" ? HEART : ch, (c + 0.5) * cellW, y);
+    }
+  }
+}
+
+const hearts = [];
+function updateHearts(dt) {
+  while (hearts.length < NUM_HEARTS) {
+    hearts.push([Math.random(), Math.random(), 0.03 + Math.random() * 0.05, Math.random() * 6.28,
+                 HEART_COLORS[Math.floor(Math.random() * HEART_COLORS.length)]]);
+  }
+  for (const h of hearts) {
+    h[1] -= h[2] * dt;
+    if (h[1] < 0) { h[0] = Math.random(); h[1] = 1; h[4] = HEART_COLORS[Math.floor(Math.random() * HEART_COLORS.length)]; }
+  }
+}
+
+function renderFrame(t, s) {
+  chars.fill(" ");
+  colors.fill(0);
+  zbuf.fill(-1e9);
+  for (const [x, y, , phase, color] of hearts) {
+    plot(((Math.floor((x + 0.015 * Math.sin(t * 1.2 + phase)) * cols) % cols) + cols) % cols, Math.floor(y * rows), -50, "♥", color);
+  }
+  const letter = s === null || s < LETTER_GONE;
+  if (letter) drawStars(plot, intro.stars, t, cols, rows);
+  if (s !== null && s >= BLOOM_START) {
+    const [, y0, , H] = letterLayout(cols, rows);
+    drawBouquet(plot, scene, t, cols, rows, easeOutBack((s - BLOOM_START) / BLOOM_TIME), y0 + H * 0.5);
+  }
+  if (letter) drawLetter(plot, t, s, cols, rows, intro);
+  paint();
+}
+
+// message under the bouquet, colors drifting through MSG_COLORS like the terminal version
+const msgSpans = [...MESSAGE].map((ch) => {
+  const span = document.createElement("span");
+  span.textContent = ch === "♥" ? HEART : ch;
+  msgEl.appendChild(span);
+  return span;
+});
+document.getElementById("footer").textContent = FOOTER;
+const touch = window.matchMedia("(pointer: coarse)").matches;
+hintEl.textContent = `${touch ? "tap" : "click"} the letter to open ${HEART}`;
+
+const scene = buildScene();
+const intro = buildIntro();
+const start = performance.now();
+let openedAt = SHOW_LETTER ? null : -1e6;
+let lastFrame = 0, lastTime = start;
+
+function open() {
+  if (openedAt !== null) return;
+  openedAt = (performance.now() - start) / 1000;
+  hintEl.classList.add("gone");
+}
+canvas.addEventListener("pointerdown", open);
+window.addEventListener("keydown", open);
+window.addEventListener("resize", resize);
+if (!SHOW_LETTER) hintEl.classList.add("gone");
+resize();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (now - lastFrame < 1000 / FPS - 2) return;
+  lastFrame = now;
+  const dt = Math.min(0.1, (now - lastTime) / 1000);
+  lastTime = now;
+  const t = (now - start) / 1000;
+  const s = openedAt === null ? null : t - openedAt;
+  updateHearts(dt);
+  renderFrame(t, s);
+  if (s !== null && s > BLOOM_START + 0.8) {
+    msgEl.classList.add("show");
+    const shift = Math.floor(t * 6);
+    msgSpans.forEach((span, i) => { span.style.color = PALETTE[MSG_COLORS[(i + shift) % MSG_COLORS.length]]; });
+  }
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
